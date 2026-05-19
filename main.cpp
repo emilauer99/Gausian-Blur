@@ -8,8 +8,9 @@
 #include <CL/cl.h>
 #include "tga.h"
 
-#define FILTER_SIZE 5
-#define SIGMA 1.0
+#define DEFAULT_FILTER_SIZE 5
+#define DEFAULT_SIGMA 1.0f
+#define MAX_FILTER_SIZE 9
 
 // save RGB pixel data as BMP file
 bool saveBMP(const char* filename, const unsigned char* data, int width, int height, int bytesPerPixel) {
@@ -80,10 +81,24 @@ void generateGaussianKernel(float* kernel, int size, float sigma) {
 int main(int argc, char* argv[]) {
     cl_int err;
 
-    // --- Load Input Image ---
+    // --- Parse Arguments ---
     const char* inputFile = "shuttle.tga";
     const char* outputFile = "output.bmp";
+    int filterSize = DEFAULT_FILTER_SIZE;
+    float sigma = DEFAULT_SIGMA;
 
+    if (argc >= 2) inputFile = argv[1];
+    if (argc >= 3) filterSize = atoi(argv[2]);
+    if (argc >= 4) sigma = (float)atof(argv[3]);
+
+    if (filterSize < 1 || filterSize > MAX_FILTER_SIZE || filterSize % 2 == 0) {
+        printf("Error: filter size must be odd and between 1 and %d\n", MAX_FILTER_SIZE);
+        return EXIT_FAILURE;
+    }
+
+    printf("Usage: gaussian_blur [input.tga] [filterSize] [sigma]\n\n");
+
+    // --- Load Input Image ---
     tga::TGAImage image;
     if (!tga::LoadTGA(&image, inputFile)) {
         printf("Failed to load image: %s\n", inputFile);
@@ -95,17 +110,10 @@ int main(int argc, char* argv[]) {
     unsigned int imageSize = image.width * image.height * bytesPerPixel;
 
     // --- Generate Gaussian Filter Kernel ---
-    int filterSize = FILTER_SIZE;
-    float filterKernel[FILTER_SIZE * FILTER_SIZE];
-    generateGaussianKernel(filterKernel, filterSize, SIGMA);
+    float filterKernel[MAX_FILTER_SIZE * MAX_FILTER_SIZE];
+    generateGaussianKernel(filterKernel, filterSize, sigma);
 
-    printf("Gaussian kernel (%dx%d, sigma=%.1f):\n", filterSize, filterSize, SIGMA);
-    for (int i = 0; i < filterSize; i++) {
-        for (int j = 0; j < filterSize; j++) {
-            printf("%.6f ", filterKernel[i * filterSize + j]);
-        }
-        printf("\n");
-    }
+    printf("Gaussian kernel: %dx%d, sigma=%.1f\n", filterSize, filterSize, sigma);
 
     // --- Platform ---
     cl_uint numPlatforms;
@@ -175,8 +183,6 @@ int main(int argc, char* argv[]) {
     cl_mem filterBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
         sizeof(float) * filterSize * filterSize, filterKernel, &err);
     checkError(err, "clCreateBuffer (filter)");
-
-    printf("\nBuffers created (input: %u bytes, filter: %dx%d)\n", imageSize, filterSize, filterSize);
 
     // --- Load & Build Kernel ---
     FILE* fp = fopen("gaussian_blur.cl", "rb");
