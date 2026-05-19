@@ -2,4 +2,6 @@
 *.obj
 *.pdb
 *.ilk
+output.tga
+output.bmp
 .idea/
